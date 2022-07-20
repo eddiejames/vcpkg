@@ -149,6 +149,25 @@ else()
     endforeach()
 endif()
 
+file(GLOB PHYSX_SRC_HDRS ${SOURCE_PATH}/physx/source/common/src/*.h)
+file(INSTALL ${PHYSX_SRC_HDRS} DESTINATION ${CURRENT_PACKAGES_DIR}/include)
+file(GLOB PHYSX_SRC_HDRS ${SOURCE_PATH}/physx/source/foundation/include/*.h)
+file(INSTALL ${PHYSX_SRC_HDRS} DESTINATION ${CURRENT_PACKAGES_DIR}/include)
+file(GLOB PHYSX_SRC_HDRS ${SOURCE_PATH}/physx/source/foundation/include/unix/*.h)
+file(INSTALL ${PHYSX_SRC_HDRS} DESTINATION ${CURRENT_PACKAGES_DIR}/include/unix)
+file(GLOB PHYSX_SRC_HDRS ${SOURCE_PATH}/physx/source/foundation/include/windows/*.h)
+file(INSTALL ${PHYSX_SRC_HDRS} DESTINATION ${CURRENT_PACKAGES_DIR}/include/windows)
+file(GLOB PHYSX_SRC_HDRS ${SOURCE_PATH}/physx/source/physxextensions/src/*.h)
+file(INSTALL ${PHYSX_SRC_HDRS} DESTINATION ${CURRENT_PACKAGES_DIR}/include)
+file(GLOB PHYSX_SRC_HDRS ${SOURCE_PATH}/physx/source/physxextensions/src/serialization/*.h)
+file(INSTALL ${PHYSX_SRC_HDRS} DESTINATION ${CURRENT_PACKAGES_DIR}/include/serialization)
+file(GLOB ${SOURCE_PATH}/physx/source/physxextensions/src/serialization/Binary/*.h)
+file(INSTALL ${PHYSX_SRC_HDRS} DESTINATION ${CURRENT_PACKAGES_DIR}/include/serialization/Binary)
+file(GLOB PHYSX_SRC_HDRS ${SOURCE_PATH}/physx/source/physxextensions/src/serialization/File/*.h)
+file(INSTALL ${PHYSX_SRC_HDRS} DESTINATION ${CURRENT_PACKAGES_DIR}/include/serialization/File)
+file(GLOB PHYSX_SRC_HDRS ${SOURCE_PATH}/physx/source/physxextensions/src/serialization/Xml/*.h)
+file(INSTALL ${PHYSX_SRC_HDRS} DESTINATION ${CURRENT_PACKAGES_DIR}/include/serialization/Xml)
+
 file(REMOVE_RECURSE
     "${CURRENT_PACKAGES_DIR}/debug/include"
     "${CURRENT_PACKAGES_DIR}/debug/source"
