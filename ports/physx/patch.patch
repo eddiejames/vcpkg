@@ -1,0 +1,12 @@
+diff --git a/physx/source/compiler/cmake/linux/CMakeLists.txt b/physx/source/compiler/cmake/linux/CMakeLists.txt
+index 48d8e46..5739f7f 100644
+--- a/physx/source/compiler/cmake/linux/CMakeLists.txt
++++ b/physx/source/compiler/cmake/linux/CMakeLists.txt
+@@ -101,6 +101,7 @@ ELSE()
+ 		-Wno-class-memaccess\
+ 		-Wno-invalid-offsetof\
+ 		-Wno-mismatched-new-delete\
++		-Wno-nonnull\
+ 		-Wno-nonnull-compare\
+ 		-Wno-pragmas\
+ 		-Wno-uninitialized\

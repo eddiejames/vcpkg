@@ -1,36 +1,49 @@
-vcpkg_download_distfile(
-    patch1
-    URLS "https://github.com/NVIDIAGameWorks/PhysX/commit/ada4fccf04e5a5832af1353d6d1f91de691aa47d.patch"
-    FILENAME "physx-PR569-ada4fccf.patch"
-    SHA512 ec2fc2fce0b5aab4d42b77f21373bf067f129543e672516477513419241c56b99f2d663b992cb29d296933440e7e7cc31a57198f6fcc78d6eac26b7706c1e937
-)
-
-vcpkg_download_distfile(
-    patch2
-    URLS "https://github.com/NVIDIAGameWorks/PhysX/commit/d590c88e3cbf0fb682726abf7d7c16417855084f.patch"
-    FILENAME "physx-PR569-d590c88e.patch"
-    SHA512 4eb7630db1cb10b2372220c3706dfe255075f466c6b2b12654c9fbc3b17c4df69d7b91e6f0d798c92a4cb8806e1c34b66bb52b46d9358d643ca62ec0de321fd2
-)
-
-vcpkg_download_distfile(
-    patch3
-    URLS "https://github.com/NVIDIAGameWorks/PhysX/commit/cdbfc0f1283829c71b07e332ddd6ce2e5aa7d467.patch"
-    FILENAME "physx-PR569-cdbfc0f.patch"
-    SHA512 2d9d4d30d923b0e006ae1a5c413993325bb4ce5c130fe655242611e87dab945cb220776f112b6cf96b1f06c83a6cec475314a11649bf03304083f5068e282ef2
-)
-
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
-    REPO NVIDIAGameWorks/PhysX
-    REF 93c6dd21b545605185f2febc8eeacebe49a99479
-    SHA512 c9f50255ca9e0f1ebdb9926992315a62b77e2eea3addd4e65217283490714e71e24f2f687717dd8eb155078a1a6b25c9fadc123ce8bc4c5615f7ac66cd6b11aa
-    HEAD_REF master
-    PATCHES
-        fix-compiler-flag.patch
-        "${patch1}"
-        "${patch2}"
-        "${patch3}"
-        remove-werror.patch
+    REPO NVIDIA-Omniverse/PhysX
+    REF 4d33492253ab64c2246d80257ac4ce0f37b40b22
+    SHA512 8893d68dedf32f83d1292145a9c650e96b88d44f582df1447b40fccaeaf9361d4f74c0a42629a4c424c4c4dd73d9175be3cbcf8a44e877133425e3fc76aaa4c1
+    HEAD_REF release/104.1
+    PATCHES patch.patch
+)
+
+vcpkg_download_distfile(
+    PHYSX_CMAKEMODULES_FILE
+    URLS https://d4i3qtqj3r0z5.cloudfront.net/CMakeModules%401.28.trunk.31965103.7z
+    FILENAME "CMakeModules@1.28.trunk.31965103.7z"
+    SHA512 fa0ddfafe6e877183048c664860e6dccfcd85c30be23eebad99ec23994a6e10530b69a81db11d45671f6ada800776db22db63df6f3945d2cbf5b86640803e476
+)
+
+vcpkg_extract_source_archive(
+    PHYSX_CMAKEMODULES
+    ARCHIVE "${PHYSX_CMAKEMODULES_FILE}"
+    NO_REMOVE_ONE_LEVEL
+)
+
+vcpkg_download_distfile(
+    PHYSX_PHYSXGPU_FILE
+    URLS https://d4i3qtqj3r0z5.cloudfront.net/PhysXGpu%40104.1-5.1.1253.32184287-public.zip
+    FILENAME "PhysXGpu@104.1-5.1.1253.32184287-public.zip"
+    SHA512 096b67a1946d9d83486353bdd6a66559b9a632ba509240622d61035abbd6bf5690d669c69629b7025d5a2db5377c3e92b038ca4d4ef5b1c434b5a95b6081773c
+)
+
+vcpkg_extract_source_archive(
+    PHYSX_PHYSXGPU
+    ARCHIVE "${PHYSX_PHYSXGPU_FILE}"
+    NO_REMOVE_ONE_LEVEL
+)
+
+vcpkg_download_distfile(
+    PHYSX_PHYSXDEVICE_FILE
+    URLS https://d4i3qtqj3r0z5.cloudfront.net/PhysXDevice%4018.12.7.3.7z
+    FILENAME "PhysXDevice@18.12.7.3.7z"
+    SHA512 801e6b64d16fde8d885c7b94e923710c701a83f0f0fa9c8452c44fb1f8fc121b63df73f2e345b682ae59d26953311f39976bc4eefab77c922170b5994773e6b9
+)
+
+vcpkg_extract_source_archive(
+    PHYSX_PHYSXDEVICE
+    ARCHIVE "${PHYSX_PHYSXDEVICE_FILE}"
+    NO_REMOVE_ONE_LEVEL
 )
 
 if(NOT DEFINED RELEASE_CONFIGURATION)
@@ -40,16 +53,12 @@ set(DEBUG_CONFIGURATION "debug")
 
 set(OPTIONS
     "-DPHYSX_ROOT_DIR=${SOURCE_PATH}/physx"
-    "-DPXSHARED_PATH=${SOURCE_PATH}/pxshared"
-    "-DPXSHARED_INSTALL_PREFIX=${CURRENT_PACKAGES_DIR}"
-    "-DCMAKEMODULES_PATH=${SOURCE_PATH}/externals/cmakemodules"
-    "-DCMAKEMODULES_NAME=CMakeModules"
-    "-DCMAKE_MODULES_VERSION=1.27"
+    "-DCMAKEMODULES_PATH=${PHYSX_CMAKEMODULES}"
+    "-DPX_BUILDPVDRUNTIME=ON"
     "-DPX_BUILDSNIPPETS=OFF"
-    "-DPX_BUILDPUBLICSAMPLES=OFF"
+    "-DPHYSX_PHYSXDEVICE_PATH=${PHYSX_PHYSXDEVICE}/bin/x86"
+    "-DPHYSX_PHYSXGPU_PATH=${PHYSX_PHYSXGPU}/bin"
     "-DPX_FLOAT_POINT_PRECISE_MATH=OFF"
-    "-DPX_COPY_EXTERNAL_DLL=OFF"
-    "-DGPU_DLL_COPIED=ON"
 )
 
 set(OPTIONS_RELEASE
