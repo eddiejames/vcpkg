@@ -1,0 +1,49 @@
+From 8bd2fa6f314188d15c256975efd1d04546b8803a Mon Sep 17 00:00:00 2001
+From: Eddie James <eajames@linux.ibm.com>
+Date: Tue, 6 Sep 2022 10:11:47 -0500
+Subject: [PATCH] no inttypes
+
+Signed-off-by: Eddie James <eajames@linux.ibm.com>
+---
+ rtc_base/event_tracer.cc                   | 2 +-
+ rtc_base/experiments/field_trial_parser.cc | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/rtc_base/event_tracer.cc b/rtc_base/event_tracer.cc
+index d23af21421..8451a95155 100644
+--- a/rtc_base/event_tracer.cc
++++ b/rtc_base/event_tracer.cc
+@@ -167,7 +167,7 @@ class EventLogger final {
+                 "%s{ \"name\": \"%s\""
+                 ", \"cat\": \"%s\""
+                 ", \"ph\": \"%c\""
+-                ", \"ts\": %" PRIu64
++                ", \"ts\": %llu"
+                 ", \"pid\": %d"
+ #if defined(WEBRTC_WIN)
+                 ", \"tid\": %lu"
+diff --git a/rtc_base/experiments/field_trial_parser.cc b/rtc_base/experiments/field_trial_parser.cc
+index b88d0f97c4..bacb620d50 100644
+--- a/rtc_base/experiments/field_trial_parser.cc
++++ b/rtc_base/experiments/field_trial_parser.cc
+@@ -126,7 +126,7 @@ absl::optional<double> ParseTypedParameter<double>(std::string str) {
+ template <>
+ absl::optional<int> ParseTypedParameter<int>(std::string str) {
+   int64_t value;
+-  if (sscanf(str.c_str(), "%" SCNd64, &value) == 1) {
++  if (sscanf(str.c_str(), "%lld", &value) == 1) {
+     if (rtc::IsValueInRangeForNumericType<int, int64_t>(value)) {
+       return static_cast<int>(value);
+     }
+@@ -137,7 +137,7 @@ absl::optional<int> ParseTypedParameter<int>(std::string str) {
+ template <>
+ absl::optional<unsigned> ParseTypedParameter<unsigned>(std::string str) {
+   int64_t value;
+-  if (sscanf(str.c_str(), "%" SCNd64, &value) == 1) {
++  if (sscanf(str.c_str(), "%lld", &value) == 1) {
+     if (rtc::IsValueInRangeForNumericType<unsigned, int64_t>(value)) {
+       return static_cast<unsigned>(value);
+     }
+-- 
+2.31.1
+

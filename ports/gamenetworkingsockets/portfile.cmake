@@ -1,16 +1,28 @@
-vcpkg_check_linkage(ONLY_DYNAMIC_LIBRARY)
-
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO ValveSoftware/GameNetworkingSockets
-    REF 505c697d0abef5da2ff3be35aa4ea3687597c3e9 # v1.4.1
-    SHA512 3e4b4da138f2b356169e6504aa899c9eca4fba5b5fcaed2a0ae8a2f5828976dd00af9f3262c75bd6d820300da87ebe32da152fecddc278a651f3b33eb59142df
+    REF 35106a6e1a1d7d496b4fbd1bf31f4e1a670d7831 # v1.4.1
+    SHA512 5f8016397210f8035cbe52d9db339d43f006f5d37fbe64641279efa3a140e57bb5300c9b0251c5455ff9c1e658531c50a299d1832c7b0d9aba3eb1819409a948
     HEAD_REF master
-    PATCHES
-        fix-depend-protobuf.patch
 )
 
+vcpkg_from_git(
+    OUT_SOURCE_PATH WEBRTC_SOURCE_PATH
+    URL https://webrtc.googlesource.com/src
+    REF 30a3e787948dd6cdd541773101d664b85eb332a6
+    HEAD_REF MAIN
+    PATCHES 0001-no-inttypes.patch
+)
+
+if (NOT EXISTS "${SOURCE_PATH}/src/external/webrtc/rtc_base")
+    file(REMOVE_RECURSE "${SOURCE_PATH}/src/external/webrtc")
+    file(RENAME "${WEBRTC_SOURCE_PATH}" "${SOURCE_PATH}/src/external/webrtc")
+endif()
+
 set(CRYPTO_BACKEND OpenSSL)
+string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "static" BUILD_STATIC_LIB)
+string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "dynamic" BUILD_SHARED_LIB)
+string(COMPARE EQUAL "${VCPKG_CRT_LINKAGE}" "static" MSVC_CRT_STATIC)
 
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
@@ -20,6 +32,12 @@ vcpkg_cmake_configure(
         -DBUILD_TOOLS=OFF
         -DUSE_CRYPTO=${CRYPTO_BACKEND}
         -DUSE_CRYPTO25519=${CRYPTO_BACKEND}
+        -DBUILD_STATIC_LIB=${BUILD_STATIC_LIB}
+        -DBUILD_SHARED_LIB=${BUILD_SHARED_LIB}
+        -DMSVC_CRT_STATIC=${MSVC_CRT_STATIC}
+        -DUSE_STEAMWEBRTC=ON
+    MAYBE_UNUSED_VARIABLES
+        MSVC_CRT_STATIC
 )
 
 vcpkg_cmake_install()

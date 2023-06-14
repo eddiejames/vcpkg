@@ -1,0 +1,1774 @@
+From 7857845896fe7669057965aa3c9c1245abc09a41 Mon Sep 17 00:00:00 2001
+From: Eddie James <eajames@linux.ibm.com>
+Date: Wed, 14 Jun 2023 15:41:57 -0500
+Subject: [PATCH] multi context
+
+Signed-off-by: Eddie James <eajames@linux.ibm.com>
+---
+ docs/context.dox     |  42 ++++++++++++
+ docs/news.dox        |  11 +++
+ include/GLFW/glfw3.h | 159 +++++++++++++++++++++++++++++++++++++++++++
+ src/cocoa_init.m     |   1 +
+ src/cocoa_platform.h |  11 +++
+ src/cocoa_window.m   |  19 ++++++
+ src/context.c        |  63 +++++++++++++++++
+ src/egl_context.c    | 147 +++++++++++++++++++++++++++++++++------
+ src/glx_context.c    |  99 +++++++++++++++++++++------
+ src/init.c           |   4 +-
+ src/internal.h       |  37 ++++++++++
+ src/nsgl_context.m   |  45 ++++++++++++
+ src/null_init.c      |   1 +
+ src/null_platform.h  |   3 +
+ src/null_window.c    |   9 +++
+ src/osmesa_context.c |  75 ++++++++++++++++++--
+ src/platform.h       |   8 +++
+ src/wgl_context.c    | 139 ++++++++++++++++++++++++++-----------
+ src/win32_init.c     |   1 +
+ src/win32_platform.h |  11 +++
+ src/win32_window.c   |  22 ++++++
+ src/wl_init.c        |   1 +
+ src/wl_platform.h    |   2 +
+ src/wl_window.c      |  13 ++++
+ src/x11_init.c       |   1 +
+ src/x11_platform.h   |  11 +++
+ src/x11_window.c     |  18 +++++
+ tests/CMakeLists.txt |   3 +-
+ tests/usercontext.c  |  96 ++++++++++++++++++++++++++
+ 29 files changed, 965 insertions(+), 87 deletions(-)
+ create mode 100644 tests/usercontext.c
+
+diff --git a/docs/context.dox b/docs/context.dox
+index c64a0709..030f3be0 100644
+--- a/docs/context.dox
++++ b/docs/context.dox
+@@ -92,6 +92,28 @@ You can disable context creation by setting the
+ without contexts must not be passed to @ref glfwMakeContextCurrent or @ref
+ glfwSwapBuffers.
+ 
++@subsection context_user User contexts for multi context windows
++
++GLFW supports multiple OpenGL or OpenGL ES contexts per window. Providing
++a window with an existing OpenGL or OpenGL ES context has been created further
++user contexts can be created using @ref glfwCreateUserContext with the same
++API sharing the window context objects.
++
++@code
++GLFWusercontext* usercontext = glfwCreateUserContext(window);
++
++/* make the user context current */
++glfwMakeUserContextCurrent(usercontext);
++
++/* make the window context current */
++glfwMakeContextCurrent(window);
++
++/* destroy the user context */
++glfwDestroyUserContext(usercontext);
++
++@endcode
++
++User contexts See also the test program `usercontext`.
+ 
+ @section context_current Current context
+ 
+@@ -122,6 +144,26 @@ error.
+  - @ref glfwExtensionSupported
+  - @ref glfwGetProcAddress
+ 
++@subsection context_current_user Current user context
++
++When using [user contexts](@ref context_user) the user context can be
++made current using @ref glfwMakeUserContextCurrent.
++
++@code
++glfwMakeUserContextCurrent(usercontext);
++@endcode
++
++This makes the any window context non-current on the calling thread, such that
++a call to @ref glfwGetCurrentContext will return `NULL`.
++
++The current user context is returned by @ref glfwGetCurrentUserContext.
++
++@code
++GLFWusercontext* usercontext = glfwGetCurrentUserContext();
++@endcode
++
++This will return the current user context or `NULL` if either the main window context
++or no context is current.
+ 
+ @section context_swap Buffer swapping
+ 
+diff --git a/docs/news.dox b/docs/news.dox
+index e16267b2..a9db9bb4 100644
+--- a/docs/news.dox
++++ b/docs/news.dox
+@@ -9,6 +9,17 @@
+ 
+ @subsection features_34 New features in version 3.4
+ 
++
++@subsubsection context_user_34 Multiple window contexts
++
++GLFW now provides the ability to create multiple OpenGL and OpenGL ES
++contexts for a given window. Called user contexts, a [GLFWusercontext](@ref context_user)
++can be created using @ref glfwCreateUserContext,
++destroyed using @ref glfwDestroyUserContext, and managed with
++@ref glfwMakeUserContextCurrent and @ref glfwGetCurrentUserContext.
++For more information see the [user context](@ref context_user) documentation.
++
++
+ @subsubsection runtime_platform_34 Runtime platform selection
+ 
+ GLFW now supports being compiled for multiple backends and selecting between
+diff --git a/include/GLFW/glfw3.h b/include/GLFW/glfw3.h
+index 58b395cd..3a13646e 100644
+--- a/include/GLFW/glfw3.h
++++ b/include/GLFW/glfw3.h
+@@ -1390,6 +1390,18 @@ typedef struct GLFWmonitor GLFWmonitor;
+  */
+ typedef struct GLFWwindow GLFWwindow;
+ 
++/*! @brief Opaque user OpenGL & OpenGL ES context object.
++ *
++ *  Opaque user OpenGL OpenGL ES context object.
++ *
++ *  @see @ref context_user
++ *
++ *  @since Added in version 3.4.
++ *
++ *  @ingroup window
++ */
++typedef struct GLFWusercontext GLFWusercontext;
++
+ /*! @brief Opaque cursor object.
+  *
+  *  Opaque cursor object.
+@@ -5963,6 +5975,9 @@ GLFWAPI uint64_t glfwGetTimerFrequency(void);
+  *  a single thread at a time and each thread can have only a single current
+  *  context at a time.
+  *
++ *  Making a context of a window current on a given thread will detach
++ *  any user context which is current on that thread and visa versa.
++ *
+  *  When moving a context between threads, you must make it non-current on the
+  *  old thread before making it current on the new one.
+  *
+@@ -5986,6 +6001,9 @@ GLFWAPI uint64_t glfwGetTimerFrequency(void);
+  *
+  *  @sa @ref context_current
+  *  @sa @ref glfwGetCurrentContext
++ *  @sa @ref context_current_user
++ *  @sa @ref glfwMakeUserContextCurrent
++ *  @sa @ref glfwGetCurrentUserContext
+  *
+  *  @since Added in version 3.0.
+  *
+@@ -6174,6 +6192,147 @@ GLFWAPI int glfwExtensionSupported(const char* extension);
+  */
+ GLFWAPI GLFWglproc glfwGetProcAddress(const char* procname);
+ 
++/*! @brief Create a new OpenGL or OpenGL ES user context for a window
++ *
++ *  This function creates a new OpenGL or OpenGL ES user context for a
++ *  window, which can be used to call OpenGL or OpenGL ES functions on
++ *  another thread. For a valid user context the window must be created
++ *  with a [GLFW_CLIENT_API](@ref GLFW_CLIENT_API_hint) other than
++ *  `GLFW_NO_API`.
++ *
++ *  User context creation uses the window context and framebuffer related
++ *  hints to ensure a valid context is created for that window, these hints
++ *  should be the same at the time of user context creation as when the
++ *  window was created.
++ *
++ *  Contexts share resources with the window context and with any other
++ *  user context created for that window.
++ *
++ *  @errors Possible errors include @ref GLFW_NOT_INITIALIZED,
++ *  @ref GLFW_INVALID_VALUE the window parameter is `NULL`,
++ *  @ref GLFW_NO_WINDOW_CONTEXT if the window has no OpenGL or
++ *  OpenGL US context, and @ref GLFW_PLATFORM_ERROR.
++ *
++ *  @param[in] window The Window for which the user context is to be
++ *  created.
++ *  @return The handle of the user context created, or `NULL` if an
++ *  [error](@ref error_handling) occurred.
++ *
++ *  @thread_safety This function must only be called from the main thread.
++ *
++ *  @sa @ref context_user
++ *  @sa @ref usercontext_creation
++ *  @sa @ref glfwDestroyUserContext
++ *  @sa @ref window_creation
++ *  @sa @ref glfwCreateWindow
++ *  @sa @ref glfwDestroyWindow
++ *
++ *  @since Added in version 3.4.
++ *
++ *  @ingroup context
++ */
++GLFWAPI GLFWusercontext* glfwCreateUserContext(GLFWwindow* window);
++
++/*! @brief Destroys the specified user context
++ *
++ *  This function destroys the specified user context.
++ *  User contexts should be destroyed before destroying the
++ *  window they were made with.
++ *
++ *  If the user context is current on the main thread, it is
++ *  detached before being destroyed.
++ *
++ *  @param[in] context The user context to destroy.
++ *
++ *  @errors Possible errors include @ref GLFW_NOT_INITIALIZED and @ref
++ *  GLFW_PLATFORM_ERROR.
++ *
++ *  @note The user context must not be current on any other
++ *  thread when this function is called.
++ *
++ *  @reentrancy This function must not be called from a callback.
++ *
++ *  @thread_safety This function must only be called from the main thread.
++ *
++ *  @sa @ref context_user
++ *  @sa @ref usercontext_creation
++ *  @sa @ref glfwCreateUserContext
++ *  @sa @ref window_creation
++ *  @sa @ref glfwCreateWindow
++ *  @sa @ref glfwDestroyWindow
++ *
++ *  @since Added in version 3.4.
++ *
++ *  @ingroup context
++ */
++GLFWAPI void glfwDestroyUserContext(GLFWusercontext* context);
++
++/*! @brief Makes the user context current for the calling thread.
++ *
++ *  This function makes the OpenGL or OpenGL ES context of the specified user
++ *  context current on the calling thread.  A context must only be made current on
++ *  a single thread at a time and each thread can have only a single current
++ *  context at a time.
++ *
++ *  Making a user context current on a given thread will detach the context of
++ *  any window which is current on that thread and visa versa.
++ *
++ *  When moving a context between threads, you must make it non-current on the
++ *  old thread before making it current on the new one.
++ *
++ *  By default, making a context non-current implicitly forces a pipeline flush.
++ *  On machines that support `GL_KHR_context_flush_control`, you can control
++ *  whether a context performs this flush by setting the
++ *  [GLFW_CONTEXT_RELEASE_BEHAVIOR](@ref GLFW_CONTEXT_RELEASE_BEHAVIOR_hint)
++ *  hint.
++ *
++ *  @param[in] context The user context to make current, or `NULL` to
++ *  detach the current context.
++ *
++ *  @errors Possible errors include @ref GLFW_NOT_INITIALIZED,
++ *  and @ref GLFW_PLATFORM_ERROR.
++ *
++ *  @thread_safety This function may be called from any thread.
++ *
++ *  @sa @ref context_user
++ *  @sa @ref context_current_user
++ *  @sa @ref glfwGetCurrentUserContext
++ *  @sa @ref context_current
++ *  @sa @ref glfwMakeContextCurrent
++ *  @sa @ref glfwGetCurrentContext
++ *
++ *  @since Added in version 3.4.
++ *
++ *  @ingroup context
++ */
++GLFWAPI void glfwMakeUserContextCurrent(GLFWusercontext* context);
++
++/*! @brief Returns the current OpenGL or OpenGL ES user context
++ *
++ *  This function returns the user context which is current
++ *  on the calling thread.
++ *
++ *  @return The user context current, or `NULL` if no user context
++ *  is current.
++ *
++ *  @errors Possible errors include @ref GLFW_NOT_INITIALIZED.
++ *
++ *  @thread_safety This function may be called from any thread.
++ *
++ *  @sa @ref context_user
++ *  @sa @ref context_current_user
++ *  @sa @ref glfwMakeUserContextCurrent
++ *  @sa @ref context_current
++ *  @sa @ref glfwMakeContextCurrent
++ *  @sa @ref glfwGetCurrentContext
++ *
++ *  @since Added in version 3.4.
++ *
++ *  @ingroup context
++ */
++GLFWAPI GLFWusercontext* glfwGetCurrentUserContext(void);
++
++
+ /*! @brief Returns whether the Vulkan loader and an ICD have been found.
+  *
+  *  This function returns whether the Vulkan loader and any minimally functional
+diff --git a/src/cocoa_init.m b/src/cocoa_init.m
+index b3831df1..157cb0a4 100644
+--- a/src/cocoa_init.m
++++ b/src/cocoa_init.m
+@@ -561,6 +561,7 @@ GLFWbool _glfwConnectCocoa(int platformID, _GLFWplatform* platform)
+         _glfwWaitEventsCocoa,
+         _glfwWaitEventsTimeoutCocoa,
+         _glfwPostEmptyEventCocoa,
++        _glfwCreateUserContextCocoa,
+         _glfwGetEGLPlatformCocoa,
+         _glfwGetEGLNativeDisplayCocoa,
+         _glfwGetEGLNativeWindowCocoa,
+diff --git a/src/cocoa_platform.h b/src/cocoa_platform.h
+index 9f7d191d..a983297d 100644
+--- a/src/cocoa_platform.h
++++ b/src/cocoa_platform.h
+@@ -107,6 +107,7 @@ typedef VkResult (APIENTRY *PFN_vkCreateMetalSurfaceEXT)(VkInstance,const VkMeta
+ 
+ #define GLFW_NSGL_CONTEXT_STATE         _GLFWcontextNSGL nsgl;
+ #define GLFW_NSGL_LIBRARY_CONTEXT_STATE _GLFWlibraryNSGL nsgl;
++#define GLFW_NSGL_USER_CONTEXT_STATE    _GLFWusercontextNSGL nsgl;
+ 
+ // HIToolbox.framework pointer typedefs
+ #define kTISPropertyUnicodeKeyLayoutData _glfw.ns.tis.kPropertyUnicodeKeyLayoutData
+@@ -134,6 +135,14 @@ typedef struct _GLFWlibraryNSGL
+     CFBundleRef     framework;
+ } _GLFWlibraryNSGL;
+ 
++// NSGL-specific per usercontext data
++//
++typedef struct _GLFWusercontextNSGL
++{
++    id                object;
++
++} _GLFWusercontextNSGL;
++
+ // Cocoa-specific per-window data
+ //
+ typedef struct _GLFWwindowNS
+@@ -300,3 +309,5 @@ GLFWbool _glfwCreateContextNSGL(_GLFWwindow* window,
+                                 const _GLFWfbconfig* fbconfig);
+ void _glfwDestroyContextNSGL(_GLFWwindow* window);
+ 
++_GLFWusercontext* _glfwCreateUserContextCocoa(_GLFWwindow* window);
++_GLFWusercontext* _glfwCreateUserContextNSGL(_GLFWwindow* window);
+diff --git a/src/cocoa_window.m b/src/cocoa_window.m
+index 6f8aa978..a6581d21 100644
+--- a/src/cocoa_window.m
++++ b/src/cocoa_window.m
+@@ -2030,6 +2030,25 @@ VkResult _glfwCreateWindowSurfaceCocoa(VkInstance instance,
+ }
+ 
+ 
++_GLFWusercontext* _glfwCreateUserContextCocoa(_GLFWwindow* window)
++{
++    if (window->context.nsgl.object)
++    {
++        return _glfwCreateUserContextNSGL(window);
++    }
++    else if (window->context.egl.handle)
++    {
++        return _glfwCreateUserContextEGL(window);
++    }
++    else if (window->context.osmesa.handle)
++    {
++        return _glfwCreateUserContextOSMesa(window);
++    }
++
++    return NULL;
++}
++
++
+ //////////////////////////////////////////////////////////////////////////
+ //////                        GLFW native API                       //////
+ //////////////////////////////////////////////////////////////////////////
+diff --git a/src/context.c b/src/context.c
+index 33b399c9..b250800f 100644
+--- a/src/context.c
++++ b/src/context.c
+@@ -620,6 +620,7 @@ GLFWAPI void glfwMakeContextCurrent(GLFWwindow* handle)
+ 
+     _GLFW_REQUIRE_INIT();
+ 
++    _glfwPlatformSetTls(&_glfw.usercontextSlot, NULL);
+     previous = _glfwPlatformGetTls(&_glfw.contextSlot);
+ 
+     if (window && window->context.client == GLFW_NO_API)
+@@ -763,3 +764,65 @@ GLFWAPI GLFWglproc glfwGetProcAddress(const char* procname)
+     return window->context.getProcAddress(procname);
+ }
+ 
++GLFWAPI GLFWusercontext* glfwCreateUserContext(GLFWwindow* handle)
++{
++    _GLFWusercontext* context;
++    _GLFWwindow* window = (_GLFWwindow*)handle;
++
++    _GLFW_REQUIRE_INIT_OR_RETURN(NULL);
++
++    if (!window)
++    {
++        _glfwInputError(GLFW_INVALID_VALUE,
++                        "Cannot create a user context without a valid window handle");
++        return NULL;
++    }
++
++    if (window->context.client == GLFW_NO_API)
++    {
++        _glfwInputError(GLFW_NO_WINDOW_CONTEXT,
++                        "Cannot create a user context for a window that has no OpenGL or OpenGL ES context");
++        return NULL;
++    }
++
++    context = _glfw.platform.createUserContext(window);
++
++    return (GLFWusercontext*)context;
++}
++
++GLFWAPI void glfwDestroyUserContext(GLFWusercontext* handle)
++{
++    _GLFWusercontext* context = (_GLFWusercontext*)handle;
++    _GLFWusercontext* current = _glfwPlatformGetTls(&_glfw.usercontextSlot);
++
++    _GLFW_REQUIRE_INIT();
++
++    if (context)
++    {
++        if(current==context)
++            glfwMakeContextCurrent(NULL);
++
++        context->destroy(context);
++    }
++}
++
++GLFWAPI void glfwMakeUserContextCurrent(GLFWusercontext* handle)
++{
++    _GLFWusercontext* context = (_GLFWusercontext*)handle;
++
++    _GLFW_REQUIRE_INIT();
++
++    // Call glfwMakeContextCurrent(NULL) to both clear context TLS and set
++    // context to NULL if required by platform & context, and this
++    // handles case of calling glfwMakeUserContextCurrent(NULL)
++    glfwMakeContextCurrent(NULL);
++
++    if (context)
++        context->makeCurrent(context);
++}
++
++GLFWAPI GLFWusercontext* glfwGetCurrentUserContext(void)
++{
++    _GLFW_REQUIRE_INIT_OR_RETURN(NULL);
++    return _glfwPlatformGetTls(&_glfw.usercontextSlot);
++}
+diff --git a/src/egl_context.c b/src/egl_context.c
+index 64dcdd6f..c378abfd 100644
+--- a/src/egl_context.c
++++ b/src/egl_context.c
+@@ -431,6 +431,10 @@ GLFWbool _glfwInitEGL(void)
+         _glfwPlatformGetModuleSymbol(_glfw.egl.handle, "eglQueryString");
+     _glfw.egl.GetProcAddress = (PFN_eglGetProcAddress)
+         _glfwPlatformGetModuleSymbol(_glfw.egl.handle, "eglGetProcAddress");
++    _glfw.egl.CreatePbufferSurface = (PFN_eglCreatePbufferSurface)
++        _glfwPlatformGetModuleSymbol(_glfw.egl.handle, "eglCreatePbufferSurface");
++    _glfw.egl.ChooseConfig = (PFN_eglChooseConfig)
++        _glfwPlatformGetModuleSymbol(_glfw.egl.handle, "eglChooseConfig");
+ 
+     if (!_glfw.egl.GetConfigAttrib ||
+         !_glfw.egl.GetConfigs ||
+@@ -447,7 +451,9 @@ GLFWbool _glfwInitEGL(void)
+         !_glfw.egl.SwapBuffers ||
+         !_glfw.egl.SwapInterval ||
+         !_glfw.egl.QueryString ||
+-        !_glfw.egl.GetProcAddress)
++        !_glfw.egl.GetProcAddress ||
++        !_glfw.egl.CreatePbufferSurface||
++        !_glfw.egl.ChooseConfig)
+     {
+         _glfwInputError(GLFW_PLATFORM_ERROR,
+                         "EGL: Failed to load required entry points");
+@@ -561,17 +567,15 @@ void _glfwTerminateEGL(void)
+     attribs[index++] = v; \
+ }
+ 
+-// Create the OpenGL or OpenGL ES context
++// Create the OpenGL or OpenGL ES context for the window eglConfig
+ //
+-GLFWbool _glfwCreateContextEGL(_GLFWwindow* window,
+-                               const _GLFWctxconfig* ctxconfig,
+-                               const _GLFWfbconfig* fbconfig)
++GLFWbool _glfwCreateContextForConfigEGL(EGLConfig eglConfig,
++                                        const _GLFWctxconfig* ctxconfig,
++                                        EGLContext* context)
+ {
+     EGLint attribs[40];
+-    EGLConfig config;
+-    EGLContext share = NULL;
+-    EGLNativeWindowType native;
+     int index = 0;
++    EGLContext share = NULL;
+ 
+     if (!_glfw.egl.display)
+     {
+@@ -582,9 +586,6 @@ GLFWbool _glfwCreateContextEGL(_GLFWwindow* window,
+     if (ctxconfig->share)
+         share = ctxconfig->share->context.egl.handle;
+ 
+-    if (!chooseEGLConfig(ctxconfig, fbconfig, &config))
+-        return GLFW_FALSE;
+-
+     if (ctxconfig->client == GLFW_OPENGL_ES_API)
+     {
+         if (!eglBindAPI(EGL_OPENGL_ES_API))
+@@ -680,10 +681,9 @@ GLFWbool _glfwCreateContextEGL(_GLFWwindow* window,
+ 
+     SET_ATTRIB(EGL_NONE, EGL_NONE);
+ 
+-    window->context.egl.handle = eglCreateContext(_glfw.egl.display,
+-                                                  config, share, attribs);
++    *context = eglCreateContext(_glfw.egl.display, eglConfig, share, attribs);
+ 
+-    if (window->context.egl.handle == EGL_NO_CONTEXT)
++    if (*context == EGL_NO_CONTEXT)
+     {
+         _glfwInputError(GLFW_VERSION_UNAVAILABLE,
+                         "EGL: Failed to create context: %s",
+@@ -691,9 +691,32 @@ GLFWbool _glfwCreateContextEGL(_GLFWwindow* window,
+         return GLFW_FALSE;
+     }
+ 
+-    // Set up attributes for surface creation
+-    index = 0;
++    return GLFW_TRUE;
++}
++
++// Create the OpenGL or OpenGL ES context
++//
++GLFWbool _glfwCreateContextEGL(_GLFWwindow* window,
++                               const _GLFWctxconfig* ctxconfig,
++                               const _GLFWfbconfig* fbconfig)
++{
++    EGLNativeWindowType native;
++    EGLint attribs[40];
++    int index = 0;
++
++    if (!chooseEGLConfig(ctxconfig, fbconfig, &window->context.egl.config))
++    {
++        _glfwInputError(GLFW_FORMAT_UNAVAILABLE,
++                        "EGL: Failed to find a suitable EGLConfig");
++        return GLFW_FALSE;
++    }
+ 
++    if (!_glfwCreateContextForConfigEGL(window->context.egl.config,ctxconfig,&window->context.egl.handle))
++    {
++        return GLFW_FALSE;
++    }
++
++    // Set up attributes for surface creation
+     if (fbconfig->sRGB)
+     {
+         if (_glfw.egl.KHR_gl_colorspace)
+@@ -714,12 +737,12 @@ GLFWbool _glfwCreateContextEGL(_GLFWwindow* window,
+     if (_glfw.egl.platform && _glfw.egl.platform != EGL_PLATFORM_ANGLE_ANGLE)
+     {
+         window->context.egl.surface =
+-            eglCreatePlatformWindowSurfaceEXT(_glfw.egl.display, config, native, attribs);
++            eglCreatePlatformWindowSurfaceEXT(_glfw.egl.display, window->context.egl.config, native, attribs);
+     }
+     else
+     {
+         window->context.egl.surface =
+-            eglCreateWindowSurface(_glfw.egl.display, config, native, attribs);
++            eglCreateWindowSurface(_glfw.egl.display, window->context.egl.config, native, attribs);
+     }
+ 
+     if (window->context.egl.surface == EGL_NO_SURFACE)
+@@ -730,7 +753,6 @@ GLFWbool _glfwCreateContextEGL(_GLFWwindow* window,
+         return GLFW_FALSE;
+     }
+ 
+-    window->context.egl.config = config;
+ 
+     // Load the appropriate client library
+     if (!_glfw.egl.KHR_get_all_proc_addresses)
+@@ -868,6 +890,93 @@ GLFWbool _glfwChooseVisualEGL(const _GLFWwndconfig* wndconfig,
+ }
+ #endif // _GLFW_X11
+ 
++static void _glfwMakeUserContextCurrentEGL(_GLFWusercontext* context)
++{
++    if (!eglMakeCurrent(_glfw.egl.display,
++                        context->egl.surface,
++                        context->egl.surface,
++                        context->egl.handle))
++    {
++        _glfwInputError(GLFW_PLATFORM_ERROR,
++                        "EGL: Failed to make user context current: %s",
++                        getEGLErrorString(eglGetError()));
++        _glfwPlatformSetTls(&_glfw.usercontextSlot, NULL);
++        return;
++    }
++    _glfwPlatformSetTls(&_glfw.usercontextSlot, context);
++}
++
++static void _glfwDestroyUserContextEGL(_GLFWusercontext* context)
++{
++    if (context->egl.surface!=EGL_NO_SURFACE)
++        eglDestroySurface(_glfw.egl.display,context->egl.surface);
++
++    eglDestroyContext(_glfw.egl.display, context->egl.handle);
++    free(context);
++}
++
++_GLFWusercontext* _glfwCreateUserContextEGL(_GLFWwindow* window)
++{
++    _GLFWusercontext* context;
++    _GLFWctxconfig ctxconfig;
++    EGLint dummyConfigAttribs[] =
++    {
++        EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
++        EGL_RED_SIZE, 1, EGL_GREEN_SIZE, 1, EGL_BLUE_SIZE, 1,
++        EGL_NONE
++    };
++    EGLint dummySurfaceAttribs[] =
++    {
++        EGL_WIDTH, 1, EGL_HEIGHT, 1,
++        EGL_NONE
++    };
++    EGLint dummySurfaceNumConfigs;
++    EGLConfig dummySurfaceConfig;
++
++    context = calloc(1, sizeof(_GLFWusercontext));
++    context->window = window;
++
++    ctxconfig = _glfw.hints.context;
++    ctxconfig.share = window;
++
++    if (!_glfwCreateContextForConfigEGL(window->context.egl.config,&ctxconfig,&context->egl.handle))
++    {
++        _glfwInputError(GLFW_PLATFORM_ERROR,
++                                "EGL: Failed to create user OpenGL context");
++        free(context);
++        return NULL;
++    }
++    if (glfwExtensionSupported("EGL_KHR_surfaceless_context"))
++        context->egl.surface = EGL_NO_SURFACE;
++    else
++    {
++        eglChooseConfig(_glfw.egl.display, dummyConfigAttribs, &dummySurfaceConfig, 1, &dummySurfaceNumConfigs);
++        if (!dummySurfaceNumConfigs)
++        {
++            eglDestroyContext(_glfw.egl.display, context->egl.handle);
++            _glfwInputError(GLFW_PLATFORM_ERROR,
++                                    "EGL: Failed to find surface config for user context: %s", getEGLErrorString(eglGetError()));
++            free(context);
++            return NULL;
++        }
++        context->egl.surface = eglCreatePbufferSurface(_glfw.egl.display, dummySurfaceConfig, dummySurfaceAttribs);
++        if (context->egl.surface == EGL_NO_SURFACE)
++        {
++            eglDestroyContext(_glfw.egl.display, context->egl.handle);
++            _glfwInputError(GLFW_PLATFORM_ERROR,
++                                    "EGL: Failed to create surface for user context: %s for %s", getEGLErrorString(eglGetError()), eglQueryString(_glfw.egl.display,0x3054));
++            free(context);
++            return NULL;
++        }
++    }
++
++    context->makeCurrent = _glfwMakeUserContextCurrentEGL;
++    context->destroy = _glfwDestroyUserContextEGL;
++
++    return context;
++}
++
++
+ 
+ //////////////////////////////////////////////////////////////////////////
+ //////                        GLFW native API                       //////
+diff --git a/src/glx_context.c b/src/glx_context.c
+index 4406dfd3..79aa6f05 100644
+--- a/src/glx_context.c
++++ b/src/glx_context.c
+@@ -448,26 +448,19 @@ void _glfwTerminateGLX(void)
+     attribs[index++] = v; \
+ }
+ 
+-// Create the OpenGL or OpenGL ES context
++
++// Create the OpenGL or OpenGL ES context for the window fbConfig
+ //
+-GLFWbool _glfwCreateContextGLX(_GLFWwindow* window,
+-                               const _GLFWctxconfig* ctxconfig,
+-                               const _GLFWfbconfig* fbconfig)
++GLFWbool _glfwCreateContextForFBGLX(_GLFWwindow* window,
++                                    const _GLFWctxconfig* ctxconfig,
++                                    GLXContext* context)
+ {
+     int attribs[40];
+-    GLXFBConfig native = NULL;
+     GLXContext share = NULL;
+ 
+     if (ctxconfig->share)
+         share = ctxconfig->share->context.glx.handle;
+ 
+-    if (!chooseGLXFBConfig(fbconfig, &native))
+-    {
+-        _glfwInputError(GLFW_FORMAT_UNAVAILABLE,
+-                        "GLX: Failed to find a suitable GLXFBConfig");
+-        return GLFW_FALSE;
+-    }
+-
+     if (ctxconfig->client == GLFW_OPENGL_ES_API)
+     {
+         if (!_glfw.glx.ARB_create_context ||
+@@ -582,9 +575,9 @@ GLFWbool _glfwCreateContextGLX(_GLFWwindow* window,
+ 
+         SET_ATTRIB(None, None);
+ 
+-        window->context.glx.handle =
++        *context =
+             _glfw.glx.CreateContextAttribsARB(_glfw.x11.display,
+-                                              native,
++                                              window->context.glx.fbconfig,
+                                               share,
+                                               True,
+                                               attribs);
+@@ -593,34 +586,56 @@ GLFWbool _glfwCreateContextGLX(_GLFWwindow* window,
+         //       implementation of GLX_ARB_create_context_profile that fail
+         //       default 1.0 context creation with a GLXBadProfileARB error in
+         //       violation of the extension spec
+-        if (!window->context.glx.handle)
++        if (!(*context))
+         {
+             if (_glfw.x11.errorCode == _glfw.glx.errorBase + GLXBadProfileARB &&
+                 ctxconfig->client == GLFW_OPENGL_API &&
+                 ctxconfig->profile == GLFW_OPENGL_ANY_PROFILE &&
+                 ctxconfig->forward == GLFW_FALSE)
+             {
+-                window->context.glx.handle =
+-                    createLegacyContextGLX(window, native, share);
++                *context =
++                    createLegacyContextGLX(window, window->context.glx.fbconfig, share);
+             }
+         }
+     }
+     else
+     {
+-        window->context.glx.handle =
+-            createLegacyContextGLX(window, native, share);
++        *context =
++            createLegacyContextGLX(window, window->context.glx.fbconfig, share);
+     }
+ 
+     _glfwReleaseErrorHandlerX11();
+ 
+-    if (!window->context.glx.handle)
++    if (!(*context))
+     {
+         _glfwInputErrorX11(GLFW_VERSION_UNAVAILABLE, "GLX: Failed to create context");
+         return GLFW_FALSE;
+     }
+ 
++    return GLFW_TRUE;
++}
++
++// Create the OpenGL or OpenGL ES context
++//
++GLFWbool _glfwCreateContextGLX(_GLFWwindow* window,
++                               const _GLFWctxconfig* ctxconfig,
++                               const _GLFWfbconfig* fbconfig)
++{
++
++    if (!chooseGLXFBConfig(fbconfig, &window->context.glx.fbconfig))
++    {
++        _glfwInputError(GLFW_FORMAT_UNAVAILABLE,
++                        "GLX: Failed to find a suitable GLXFBConfig");
++        return GLFW_FALSE;
++    }
++
++    if(!_glfwCreateContextForFBGLX(window,ctxconfig,&window->context.glx.handle))
++    {
++        return GLFW_FALSE;
++    }
++
+     window->context.glx.window =
+-        glXCreateWindow(_glfw.x11.display, native, window->x11.handle, NULL);
++        glXCreateWindow(_glfw.x11.display, window->context.glx.fbconfig, window->x11.handle, NULL);
+     if (!window->context.glx.window)
+     {
+         _glfwInputError(GLFW_PLATFORM_ERROR, "GLX: Failed to create window");
+@@ -671,6 +686,48 @@ GLFWbool _glfwChooseVisualGLX(const _GLFWwndconfig* wndconfig,
+     return GLFW_TRUE;
+ }
+ 
++static void _glfwMakeUserContextCurrentGLX(_GLFWusercontext* context)
++{
++    if(!glXMakeCurrent(_glfw.x11.display, context->window->context.glx.window,context->glx.handle))
++    {
++        _glfwInputError(GLFW_PLATFORM_ERROR,
++                        "GLX: Failed to make user context current");
++        _glfwPlatformSetTls(&_glfw.usercontextSlot, NULL);
++        return;
++    }
++    _glfwPlatformSetTls(&_glfw.usercontextSlot, context);
++}
++
++static void _glfwDestroyUserContextGLX(_GLFWusercontext* context)
++{
++    glXDestroyContext(_glfw.x11.display, context->glx.handle);
++    free(context);
++}
++
++_GLFWusercontext* _glfwCreateUserContextGLX(_GLFWwindow* window)
++{
++    _GLFWusercontext* context;
++    _GLFWctxconfig ctxconfig;
++
++    context = calloc(1, sizeof(_GLFWusercontext));
++    context->window = window;
++
++    ctxconfig = _glfw.hints.context;
++    ctxconfig.share = window;
++
++    if(!_glfwCreateContextForFBGLX(window,&ctxconfig,&context->glx.handle))
++    {
++        _glfwInputError(GLFW_PLATFORM_ERROR,
++                                "GLX: Failed to create user OpenGL context");
++        free(context);
++        return NULL;
++    }
++
++    context->makeCurrent = _glfwMakeUserContextCurrentGLX;
++    context->destroy = _glfwDestroyUserContextGLX;
++
++    return context;
++}
+ 
+ //////////////////////////////////////////////////////////////////////////
+ //////                        GLFW native API                       //////
+diff --git a/src/init.c b/src/init.c
+index 06dbb3f2..4269b1c4 100644
+--- a/src/init.c
++++ b/src/init.c
+@@ -131,6 +131,7 @@ static void terminate(void)
+         _glfw_free(error);
+     }
+ 
++    _glfwPlatformDestroyTls(&_glfw.usercontextSlot);
+     _glfwPlatformDestroyTls(&_glfw.contextSlot);
+     _glfwPlatformDestroyTls(&_glfw.errorSlot);
+     _glfwPlatformDestroyMutex(&_glfw.errorLock);
+@@ -433,7 +434,8 @@ GLFWAPI int glfwInit(void)
+ 
+     if (!_glfwPlatformCreateMutex(&_glfw.errorLock) ||
+         !_glfwPlatformCreateTls(&_glfw.errorSlot) ||
+-        !_glfwPlatformCreateTls(&_glfw.contextSlot))
++        !_glfwPlatformCreateTls(&_glfw.contextSlot) ||
++        !_glfwPlatformCreateTls(&_glfw.usercontextSlot))
+     {
+         terminate();
+         return GLFW_FALSE;
+diff --git a/src/internal.h b/src/internal.h
+index fe0369aa..9f5fb154 100644
+--- a/src/internal.h
++++ b/src/internal.h
+@@ -77,6 +77,7 @@ typedef struct _GLFWmapping     _GLFWmapping;
+ typedef struct _GLFWjoystick    _GLFWjoystick;
+ typedef struct _GLFWtls         _GLFWtls;
+ typedef struct _GLFWmutex       _GLFWmutex;
++typedef struct _GLFWusercontext _GLFWusercontext;
+ 
+ #define GL_VERSION 0x1f02
+ #define GL_NONE 0
+@@ -156,6 +157,9 @@ typedef const GLubyte* (APIENTRY * PFNGLGETSTRINGIPROC)(GLenum,GLuint);
+ #define EGL_NO_DISPLAY ((EGLDisplay) 0)
+ #define EGL_NO_CONTEXT ((EGLContext) 0)
+ #define EGL_DEFAULT_DISPLAY ((EGLNativeDisplayType) 0)
++#define EGL_PBUFFER_BIT 0x0001
++#define EGL_HEIGHT 0x3056
++#define EGL_WIDTH 0x3057
+ 
+ #define EGL_CONTEXT_OPENGL_FORWARD_COMPATIBLE_BIT_KHR 0x00000002
+ #define EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT_KHR 0x00000001
+@@ -216,6 +220,8 @@ typedef EGLBoolean (EGLAPIENTRY * PFN_eglSwapBuffers)(EGLDisplay,EGLSurface);
+ typedef EGLBoolean (EGLAPIENTRY * PFN_eglSwapInterval)(EGLDisplay,EGLint);
+ typedef const char* (EGLAPIENTRY * PFN_eglQueryString)(EGLDisplay,EGLint);
+ typedef GLFWglproc (EGLAPIENTRY * PFN_eglGetProcAddress)(const char*);
++typedef EGLSurface (EGLAPIENTRY * PFN_eglCreatePbufferSurface)(EGLDisplay,EGLConfig,const EGLint*);
++typedef EGLBoolean (EGLAPIENTRY * PFN_eglChooseConfig)(EGLDisplay,EGLint const*,EGLConfig*,EGLint,EGLint*);
+ #define eglGetConfigAttrib _glfw.egl.GetConfigAttrib
+ #define eglGetConfigs _glfw.egl.GetConfigs
+ #define eglGetDisplay _glfw.egl.GetDisplay
+@@ -232,6 +238,8 @@ typedef GLFWglproc (EGLAPIENTRY * PFN_eglGetProcAddress)(const char*);
+ #define eglSwapInterval _glfw.egl.SwapInterval
+ #define eglQueryString _glfw.egl.QueryString
+ #define eglGetProcAddress _glfw.egl.GetProcAddress
++#define eglCreatePbufferSurface _glfw.egl.CreatePbufferSurface
++#define eglChooseConfig _glfw.egl.ChooseConfig
+ 
+ typedef EGLDisplay (EGLAPIENTRY * PFNEGLGETPLATFORMDISPLAYEXTPROC)(EGLenum,void*,const EGLint*);
+ typedef EGLSurface (EGLAPIENTRY * PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC)(EGLDisplay,EGLConfig,void*,const EGLint*);
+@@ -518,6 +526,29 @@ struct _GLFWcontext
+     GLFW_PLATFORM_CONTEXT_STATE
+ };
+ 
++
++// User Context structure
++//
++struct _GLFWusercontext
++{
++    _GLFWwindow* window;
++
++    void (*makeCurrent)(_GLFWusercontext* context);
++    void (*destroy)(_GLFWusercontext* context);
++
++    struct {
++       EGLContext       handle;
++       EGLSurface       surface;
++    } egl;
++
++    struct {
++        OSMesaContext   handle;
++    } osmesa;
++
++    // This is defined in platform.h
++    GLFW_PLATFORM_USER_CONTEXT_STATE
++};
++
+ // Window and context structure
+ //
+ struct _GLFWwindow
+@@ -742,6 +773,7 @@ struct _GLFWplatform
+     void (*waitEvents)(void);
+     void (*waitEventsTimeout)(double);
+     void (*postEmptyEvent)(void);
++    _GLFWusercontext* (*createUserContext)(_GLFWwindow*);
+     // EGL
+     EGLenum (*getEGLPlatform)(EGLint**);
+     EGLNativeDisplayType (*getEGLNativeDisplay)(void);
+@@ -783,6 +815,7 @@ struct _GLFWlibrary
+ 
+     _GLFWtls            errorSlot;
+     _GLFWtls            contextSlot;
++    _GLFWtls            usercontextSlot;
+     _GLFWmutex          errorLock;
+ 
+     struct {
+@@ -831,6 +864,8 @@ struct _GLFWlibrary
+         PFN_eglSwapInterval         SwapInterval;
+         PFN_eglQueryString          QueryString;
+         PFN_eglGetProcAddress       GetProcAddress;
++        PFN_eglCreatePbufferSurface CreatePbufferSurface;
++        PFN_eglChooseConfig         ChooseConfig;
+ 
+         PFNEGLGETPLATFORMDISPLAYEXTPROC GetPlatformDisplayEXT;
+         PFNEGLCREATEPLATFORMWINDOWSURFACEEXTPROC CreatePlatformWindowSurfaceEXT;
+@@ -980,6 +1015,7 @@ void _glfwTerminateEGL(void);
+ GLFWbool _glfwCreateContextEGL(_GLFWwindow* window,
+                                const _GLFWctxconfig* ctxconfig,
+                                const _GLFWfbconfig* fbconfig);
++_GLFWusercontext* _glfwCreateUserContextEGL(_GLFWwindow* window);
+ #if defined(_GLFW_X11)
+ GLFWbool _glfwChooseVisualEGL(const _GLFWwndconfig* wndconfig,
+                               const _GLFWctxconfig* ctxconfig,
+@@ -992,6 +1028,7 @@ void _glfwTerminateOSMesa(void);
+ GLFWbool _glfwCreateContextOSMesa(_GLFWwindow* window,
+                                   const _GLFWctxconfig* ctxconfig,
+                                   const _GLFWfbconfig* fbconfig);
++_GLFWusercontext* _glfwCreateUserContextOSMesa(_GLFWwindow* window);
+ 
+ GLFWbool _glfwInitVulkan(int mode);
+ void _glfwTerminateVulkan(void);
+diff --git a/src/nsgl_context.m b/src/nsgl_context.m
+index 878f32ed..2fe43ae0 100644
+--- a/src/nsgl_context.m
++++ b/src/nsgl_context.m
+@@ -351,6 +351,51 @@ GLFWbool _glfwCreateContextNSGL(_GLFWwindow* window,
+ }
+ 
+ 
++static void _glfwMakeUserContextCurrentNSGL(_GLFWusercontext* context)
++{
++    @autoreleasepool {
++
++        [context->nsgl.object makeCurrentContext];
++
++        _glfwPlatformSetTls(&_glfw.usercontextSlot, context);
++
++    } // autoreleasepool
++}
++
++static void _glfwDestroyUserContextNSGL(_GLFWusercontext* context)
++{
++    @autoreleasepool {
++
++        [context->nsgl.object release];
++
++    } // autoreleasepool
++    free(context);
++}
++
++_GLFWusercontext* _glfwCreateUserContextNSGL(_GLFWwindow* window)
++{
++    _GLFWusercontext* context;
++
++    context = calloc(1, sizeof(_GLFWusercontext));
++    context->window = window;
++
++    context->nsgl.object =
++        [[NSOpenGLContext alloc] initWithFormat:window->context.nsgl.pixelFormat
++                                   shareContext:window->context.nsgl.object];
++    if (window->context.nsgl.object == nil)
++    {
++        _glfwInputError(GLFW_VERSION_UNAVAILABLE,
++                        "NSGL: Failed to create OpenGL user context");
++        free(context);
++        return NULL;
++    }
++
++    context->makeCurrent = _glfwMakeUserContextCurrentNSGL;
++    context->destroy = _glfwDestroyUserContextNSGL;
++
++    return context;
++}
++
+ //////////////////////////////////////////////////////////////////////////
+ //////                        GLFW native API                       //////
+ //////////////////////////////////////////////////////////////////////////
+diff --git a/src/null_init.c b/src/null_init.c
+index 7236c98c..4ad13ad2 100644
+--- a/src/null_init.c
++++ b/src/null_init.c
+@@ -107,6 +107,7 @@ GLFWbool _glfwConnectNull(int platformID, _GLFWplatform* platform)
+         _glfwWaitEventsNull,
+         _glfwWaitEventsTimeoutNull,
+         _glfwPostEmptyEventNull,
++        _glfwCreateUserContextNull,
+         _glfwGetEGLPlatformNull,
+         _glfwGetEGLNativeDisplayNull,
+         _glfwGetEGLNativeWindowNull,
+diff --git a/src/null_platform.h b/src/null_platform.h
+index 6d900111..cbfc0756 100644
+--- a/src/null_platform.h
++++ b/src/null_platform.h
+@@ -32,6 +32,7 @@
+ #define GLFW_NULL_CONTEXT_STATE
+ #define GLFW_NULL_CURSOR_STATE
+ #define GLFW_NULL_LIBRARY_CONTEXT_STATE
++#define GLFW_NULL_USER_CONTEXT_STATE
+ 
+ #define GLFW_NULL_SC_FIRST          GLFW_NULL_SC_SPACE
+ #define GLFW_NULL_SC_SPACE          1
+@@ -271,3 +272,5 @@ VkResult _glfwCreateWindowSurfaceNull(VkInstance instance, _GLFWwindow* window,
+ 
+ void _glfwPollMonitorsNull(void);
+ 
++_GLFWusercontext* _glfwCreateUserContextNull(_GLFWwindow* window);
++
+diff --git a/src/null_window.c b/src/null_window.c
+index e0bbb3b6..84522f0d 100644
+--- a/src/null_window.c
++++ b/src/null_window.c
+@@ -718,3 +718,12 @@ VkResult _glfwCreateWindowSurfaceNull(VkInstance instance,
+     return VK_ERROR_EXTENSION_NOT_PRESENT;
+ }
+ 
++_GLFWusercontext* _glfwCreateUserContextNull(_GLFWwindow* window)
++{
++    if (window->context.osmesa.handle)
++    {
++        return _glfwCreateUserContextOSMesa(window);
++    }
++
++    return NULL;
++}
+diff --git a/src/osmesa_context.c b/src/osmesa_context.c
+index 38adabbc..e7e9eaa0 100644
+--- a/src/osmesa_context.c
++++ b/src/osmesa_context.c
+@@ -197,9 +197,9 @@ void _glfwTerminateOSMesa(void)
+     attribs[index++] = v; \
+ }
+ 
+-GLFWbool _glfwCreateContextOSMesa(_GLFWwindow* window,
+-                                  const _GLFWctxconfig* ctxconfig,
+-                                  const _GLFWfbconfig* fbconfig)
++GLFWbool _glfwCreateContextForConfigOSMesa(const _GLFWctxconfig* ctxconfig,
++                                           const _GLFWfbconfig* fbconfig,
++                                           OSMesaContext* context )
+ {
+     OSMesaContext share = NULL;
+     const int accumBits = fbconfig->accumRedBits +
+@@ -250,7 +250,7 @@ GLFWbool _glfwCreateContextOSMesa(_GLFWwindow* window,
+ 
+         SET_ATTRIB(0, 0);
+ 
+-        window->context.osmesa.handle =
++        *context =
+             OSMesaCreateContextAttribs(attribs, share);
+     }
+     else
+@@ -262,7 +262,7 @@ GLFWbool _glfwCreateContextOSMesa(_GLFWwindow* window,
+             return GLFW_FALSE;
+         }
+ 
+-        window->context.osmesa.handle =
++        *context =
+             OSMesaCreateContextExt(OSMESA_RGBA,
+                                    fbconfig->depthBits,
+                                    fbconfig->stencilBits,
+@@ -270,13 +270,25 @@ GLFWbool _glfwCreateContextOSMesa(_GLFWwindow* window,
+                                    share);
+     }
+ 
+-    if (window->context.osmesa.handle == NULL)
++    if (*context == NULL)
+     {
+         _glfwInputError(GLFW_VERSION_UNAVAILABLE,
+                         "OSMesa: Failed to create context");
+         return GLFW_FALSE;
+     }
+ 
++    return GLFW_TRUE;
++}
++
++GLFWbool _glfwCreateContextOSMesa(_GLFWwindow* window,
++                                  const _GLFWctxconfig* ctxconfig,
++                                  const _GLFWfbconfig* fbconfig)
++{
++    if(!_glfwCreateContextForConfigOSMesa(ctxconfig,fbconfig,&window->context.osmesa.handle))
++    {
++        return GLFW_FALSE;
++    }
++
+     window->context.makeCurrent = makeContextCurrentOSMesa;
+     window->context.swapBuffers = swapBuffersOSMesa;
+     window->context.swapInterval = swapIntervalOSMesa;
+@@ -289,6 +301,57 @@ GLFWbool _glfwCreateContextOSMesa(_GLFWwindow* window,
+ 
+ #undef SET_ATTRIB
+ 
++static void _glfwMakeUserContextCurrentOSMesa(_GLFWusercontext* context)
++{
++    if (!OSMesaMakeCurrent(context->osmesa.handle,
++                            context->window->context.osmesa.buffer,
++                            GL_UNSIGNED_BYTE,
++                            context->window->context.osmesa.width, context->window->context.osmesa.height))
++    {
++        _glfwInputError(GLFW_PLATFORM_ERROR,
++                        "OSMesa: Failed to make user context current");
++        _glfwPlatformSetTls(&_glfw.usercontextSlot, NULL);
++        return;
++    }
++    _glfwPlatformSetTls(&_glfw.usercontextSlot, context);
++}
++
++static void _glfwDestroyUserContextOSMesa(_GLFWusercontext* context)
++{
++    if (context->osmesa.handle)
++    {
++        OSMesaDestroyContext(context->osmesa.handle);
++    }
++    free(context);
++}
++
++_GLFWusercontext* _glfwCreateUserContextOSMesa(_GLFWwindow* window)
++{
++    _GLFWusercontext* context;
++    _GLFWctxconfig ctxconfig;
++    _GLFWfbconfig fbconfig;
++
++    context = calloc(1, sizeof(_GLFWusercontext));
++    context->window = window;
++
++    ctxconfig = _glfw.hints.context;
++    ctxconfig.share = window;
++
++    fbconfig = _glfw.hints.framebuffer;
++
++    if(!_glfwCreateContextForConfigOSMesa(&ctxconfig,&fbconfig,&context->osmesa.handle))
++    {
++        _glfwInputError(GLFW_PLATFORM_ERROR,
++                                "OSMesa: Failed to create user OpenGL context");
++        free(context);
++        return NULL;
++    }
++
++    context->makeCurrent = _glfwMakeUserContextCurrentOSMesa;
++    context->destroy = _glfwDestroyUserContextOSMesa;
++
++    return context;
++}
+ 
+ //////////////////////////////////////////////////////////////////////////
+ //////                        GLFW native API                       //////
+diff --git a/src/platform.h b/src/platform.h
+index 4e924a69..358f586f 100644
+--- a/src/platform.h
++++ b/src/platform.h
+@@ -48,6 +48,7 @@
+  #define GLFW_WIN32_LIBRARY_WINDOW_STATE
+  #define GLFW_WGL_CONTEXT_STATE
+  #define GLFW_WGL_LIBRARY_CONTEXT_STATE
++ #define GLFW_WGL_USER_CONTEXT_STATE
+ #endif
+ 
+ #if defined(_GLFW_COCOA)
+@@ -59,6 +60,7 @@
+  #define GLFW_COCOA_LIBRARY_WINDOW_STATE
+  #define GLFW_NSGL_CONTEXT_STATE
+  #define GLFW_NSGL_LIBRARY_CONTEXT_STATE
++ #define GLFW_NSGL_USER_CONTEXT_STATE
+ #endif
+ 
+ #if defined(_GLFW_WAYLAND)
+@@ -79,6 +81,7 @@
+  #define GLFW_X11_LIBRARY_WINDOW_STATE
+  #define GLFW_GLX_CONTEXT_STATE
+  #define GLFW_GLX_LIBRARY_CONTEXT_STATE
++ #define GLFW_GLX_USER_CONTEXT_STATE
+ #endif
+ 
+ #include "null_joystick.h"
+@@ -156,6 +159,11 @@
+         GLFW_NSGL_LIBRARY_CONTEXT_STATE \
+         GLFW_GLX_LIBRARY_CONTEXT_STATE
+ 
++#define GLFW_PLATFORM_USER_CONTEXT_STATE \
++        GLFW_WGL_USER_CONTEXT_STATE \
++        GLFW_NSGL_USER_CONTEXT_STATE \
++        GLFW_GLX_USER_CONTEXT_STATE
++
+ #if defined(_WIN32)
+  #define GLFW_BUILD_WIN32_THREAD
+ #else
+diff --git a/src/wgl_context.c b/src/wgl_context.c
+index cfe24b27..dfbc0cd1 100644
+--- a/src/wgl_context.c
++++ b/src/wgl_context.c
+@@ -520,47 +520,17 @@ void _glfwTerminateWGL(void)
+     attribs[index++] = v; \
+ }
+ 
+-// Create the OpenGL or OpenGL ES context
++// Create the OpenGL or OpenGL ES context for the given HDC
+ //
+-GLFWbool _glfwCreateContextWGL(_GLFWwindow* window,
+-                               const _GLFWctxconfig* ctxconfig,
+-                               const _GLFWfbconfig* fbconfig)
++GLFWbool _glfwCreateContextForDCWGL(HDC dc, const _GLFWctxconfig* ctxconfig, HGLRC* context)
+ {
+     int attribs[40];
+-    int pixelFormat;
+-    PIXELFORMATDESCRIPTOR pfd;
+     HGLRC share = NULL;
+ 
++    *context = NULL;
+     if (ctxconfig->share)
+         share = ctxconfig->share->context.wgl.handle;
+ 
+-    window->context.wgl.dc = GetDC(window->win32.handle);
+-    if (!window->context.wgl.dc)
+-    {
+-        _glfwInputError(GLFW_PLATFORM_ERROR,
+-                        "WGL: Failed to retrieve DC for window");
+-        return GLFW_FALSE;
+-    }
+-
+-    pixelFormat = choosePixelFormatWGL(window, ctxconfig, fbconfig);
+-    if (!pixelFormat)
+-        return GLFW_FALSE;
+-
+-    if (!DescribePixelFormat(window->context.wgl.dc,
+-                             pixelFormat, sizeof(pfd), &pfd))
+-    {
+-        _glfwInputErrorWin32(GLFW_PLATFORM_ERROR,
+-                             "WGL: Failed to retrieve PFD for selected pixel format");
+-        return GLFW_FALSE;
+-    }
+-
+-    if (!SetPixelFormat(window->context.wgl.dc, pixelFormat, &pfd))
+-    {
+-        _glfwInputErrorWin32(GLFW_PLATFORM_ERROR,
+-                             "WGL: Failed to set selected pixel format");
+-        return GLFW_FALSE;
+-    }
+-
+     if (ctxconfig->client == GLFW_OPENGL_API)
+     {
+         if (ctxconfig->forward)
+@@ -674,9 +644,9 @@ GLFWbool _glfwCreateContextWGL(_GLFWwindow* window,
+ 
+         SET_ATTRIB(0, 0);
+ 
+-        window->context.wgl.handle =
+-            wglCreateContextAttribsARB(window->context.wgl.dc, share, attribs);
+-        if (!window->context.wgl.handle)
++        *context =
++            wglCreateContextAttribsARB(dc, share, attribs);
++        if (!(*context))
+         {
+             const DWORD error = GetLastError();
+ 
+@@ -726,8 +696,8 @@ GLFWbool _glfwCreateContextWGL(_GLFWwindow* window,
+     }
+     else
+     {
+-        window->context.wgl.handle = wglCreateContext(window->context.wgl.dc);
+-        if (!window->context.wgl.handle)
++        *context = wglCreateContext(dc);
++        if (!(*context) )
+         {
+             _glfwInputErrorWin32(GLFW_VERSION_UNAVAILABLE,
+                                  "WGL: Failed to create OpenGL context");
+@@ -736,7 +706,7 @@ GLFWbool _glfwCreateContextWGL(_GLFWwindow* window,
+ 
+         if (share)
+         {
+-            if (!wglShareLists(share, window->context.wgl.handle))
++            if (!wglShareLists(share, *context))
+             {
+                 _glfwInputErrorWin32(GLFW_PLATFORM_ERROR,
+                                      "WGL: Failed to enable sharing with specified OpenGL context");
+@@ -745,6 +715,50 @@ GLFWbool _glfwCreateContextWGL(_GLFWwindow* window,
+         }
+     }
+ 
++    return GLFW_TRUE;
++}
++
++// Create the OpenGL or OpenGL ES context
++//
++GLFWbool _glfwCreateContextWGL(_GLFWwindow* window,
++                               const _GLFWctxconfig* ctxconfig,
++                               const _GLFWfbconfig* fbconfig)
++{
++    int pixelFormat;
++    PIXELFORMATDESCRIPTOR pfd;
++
++    window->context.wgl.dc = GetDC(window->win32.handle);
++    if (!window->context.wgl.dc)
++    {
++        _glfwInputError(GLFW_PLATFORM_ERROR,
++                        "WGL: Failed to retrieve DC for window");
++        return GLFW_FALSE;
++    }
++
++    pixelFormat = choosePixelFormatWGL(window, ctxconfig, fbconfig);
++    if (!pixelFormat)
++        return GLFW_FALSE;
++
++    if (!DescribePixelFormat(window->context.wgl.dc,
++                             pixelFormat, sizeof(pfd), &pfd))
++    {
++        _glfwInputErrorWin32(GLFW_PLATFORM_ERROR,
++                             "WGL: Failed to retrieve PFD for selected pixel format");
++        return GLFW_FALSE;
++    }
++
++    if (!SetPixelFormat(window->context.wgl.dc, pixelFormat, &pfd))
++    {
++        _glfwInputErrorWin32(GLFW_PLATFORM_ERROR,
++                             "WGL: Failed to set selected pixel format");
++        return GLFW_FALSE;
++    }
++
++    if(!_glfwCreateContextForDCWGL( window->context.wgl.dc, ctxconfig, &window->context.wgl.handle ))
++    {
++        return GLFW_FALSE;
++    }
++
+     window->context.makeCurrent = makeContextCurrentWGL;
+     window->context.swapBuffers = swapBuffersWGL;
+     window->context.swapInterval = swapIntervalWGL;
+@@ -755,6 +769,53 @@ GLFWbool _glfwCreateContextWGL(_GLFWwindow* window,
+     return GLFW_TRUE;
+ }
+ 
++static void _glfwMakeUserContextCurrentWGL(_GLFWusercontext* context)
++{
++    if(!wglMakeCurrent(context->window->context.wgl.dc,context->wgl.handle))
++    {
++        _glfwInputErrorWin32(GLFW_PLATFORM_ERROR,
++                             "WGL: Failed to make user context current");
++        _glfwPlatformSetTls(&_glfw.usercontextSlot, NULL);
++        return;
++    }
++    _glfwPlatformSetTls(&_glfw.usercontextSlot, context);
++}
++
++static void _glfwDestroyUserContextWGL(_GLFWusercontext* context)
++{
++    wglDeleteContext(context->wgl.handle);
++    free(context);
++}
++
++_GLFWusercontext* _glfwCreateUserContextWGL(_GLFWwindow* window)
++{
++    _GLFWusercontext* context;
++    _GLFWctxconfig ctxconfig;
++
++    context = calloc(1, sizeof(_GLFWusercontext));
++    context->window = window;
++
++    ctxconfig = _glfw.hints.context;
++    ctxconfig.share = window;
++
++    if (!_glfwCreateContextForDCWGL(window->context.wgl.dc, &ctxconfig, &context->wgl.handle))
++    {
++        _glfwInputErrorWin32(GLFW_PLATFORM_ERROR,
++                                "WGL: Failed to create user OpenGL context");
++        free(context);
++        return NULL;
++    }
++
++    context->makeCurrent = _glfwMakeUserContextCurrentWGL;
++    context->destroy = _glfwDestroyUserContextWGL;
++
++    return context;
++}
++
++
++//////////////////////////////////////////////////////////////////////////
++//////                        GLFW native API                       //////
++//////////////////////////////////////////////////////////////////////////
+ #undef SET_ATTRIB
+ 
+ GLFWAPI HGLRC glfwGetWGLContext(GLFWwindow* handle)
+diff --git a/src/win32_init.c b/src/win32_init.c
+index ef2615f1..e0492e23 100644
+--- a/src/win32_init.c
++++ b/src/win32_init.c
+@@ -671,6 +671,7 @@ GLFWbool _glfwConnectWin32(int platformID, _GLFWplatform* platform)
+         _glfwWaitEventsWin32,
+         _glfwWaitEventsTimeoutWin32,
+         _glfwPostEmptyEventWin32,
++        _glfwCreateUserContextWin32,
+         _glfwGetEGLPlatformWin32,
+         _glfwGetEGLNativeDisplayWin32,
+         _glfwGetEGLNativeWindowWin32,
+diff --git a/src/win32_platform.h b/src/win32_platform.h
+index 82b34bb9..6aeb0df6 100644
+--- a/src/win32_platform.h
++++ b/src/win32_platform.h
+@@ -365,6 +365,7 @@ typedef VkBool32 (APIENTRY *PFN_vkGetPhysicalDeviceWin32PresentationSupportKHR)(
+ 
+ #define GLFW_WGL_CONTEXT_STATE          _GLFWcontextWGL wgl;
+ #define GLFW_WGL_LIBRARY_CONTEXT_STATE  _GLFWlibraryWGL wgl;
++#define GLFW_WGL_USER_CONTEXT_STATE     _GLFWusercontextWGL wgl;
+ 
+ 
+ // WGL-specific per-context data
+@@ -408,6 +409,14 @@ typedef struct _GLFWlibraryWGL
+     GLFWbool                            ARB_context_flush_control;
+ } _GLFWlibraryWGL;
+ 
++// WGL-specific per-usercontext data
++//
++typedef struct _GLFWusercontextWGL
++{
++    HDC       dc;
++    HGLRC     handle;
++} _GLFWusercontextWGL;
++
+ // Win32-specific per-window data
+ //
+ typedef struct _GLFWwindowWin32
+@@ -622,3 +631,5 @@ GLFWbool _glfwCreateContextWGL(_GLFWwindow* window,
+                                const _GLFWctxconfig* ctxconfig,
+                                const _GLFWfbconfig* fbconfig);
+ 
++_GLFWusercontext* _glfwCreateUserContextWin32(_GLFWwindow* window);
++_GLFWusercontext* _glfwCreateUserContextWGL(_GLFWwindow* window);
+diff --git a/src/win32_window.c b/src/win32_window.c
+index 676640bf..809144fd 100644
+--- a/src/win32_window.c
++++ b/src/win32_window.c
+@@ -2485,6 +2485,28 @@ VkResult _glfwCreateWindowSurfaceWin32(VkInstance instance,
+     return err;
+ }
+ 
++_GLFWusercontext* _glfwCreateUserContextWin32(_GLFWwindow* window)
++{
++    if (window->context.wgl.handle)
++    {
++        return _glfwCreateUserContextWGL(window);
++    }
++    else if (window->context.egl.handle)
++    {
++        return _glfwCreateUserContextEGL(window);
++    }
++    else if (window->context.osmesa.handle)
++    {
++        return _glfwCreateUserContextOSMesa(window);
++    }
++
++    return GLFW_FALSE;
++}
++
++//////////////////////////////////////////////////////////////////////////
++//////                        GLFW native API                       //////
++//////////////////////////////////////////////////////////////////////////
++
+ GLFWAPI HWND glfwGetWin32Window(GLFWwindow* handle)
+ {
+     _GLFWwindow* window = (_GLFWwindow*) handle;
+diff --git a/src/wl_init.c b/src/wl_init.c
+index 66d77dca..03e353c3 100644
+--- a/src/wl_init.c
++++ b/src/wl_init.c
+@@ -464,6 +464,7 @@ GLFWbool _glfwConnectWayland(int platformID, _GLFWplatform* platform)
+         _glfwWaitEventsWayland,
+         _glfwWaitEventsTimeoutWayland,
+         _glfwPostEmptyEventWayland,
++        _glfwCreateUserContextWayland,
+         _glfwGetEGLPlatformWayland,
+         _glfwGetEGLNativeDisplayWayland,
+         _glfwGetEGLNativeWindowWayland,
+diff --git a/src/wl_platform.h b/src/wl_platform.h
+index e9dd0b4a..0d4f7278 100644
+--- a/src/wl_platform.h
++++ b/src/wl_platform.h
+@@ -681,6 +681,8 @@ void _glfwSetGammaRampWayland(_GLFWmonitor* monitor, const GLFWgammaramp* ramp);
+ void _glfwAddOutputWayland(uint32_t name, uint32_t version);
+ void _glfwUpdateContentScaleWayland(_GLFWwindow* window);
+ 
++_GLFWusercontext* _glfwCreateUserContextWayland(_GLFWwindow* window);
++
+ void _glfwAddSeatListenerWayland(struct wl_seat* seat);
+ void _glfwAddDataDeviceListenerWayland(struct wl_data_device* device);
+ 
+diff --git a/src/wl_window.c b/src/wl_window.c
+index 52d3b9eb..af033e30 100644
+--- a/src/wl_window.c
++++ b/src/wl_window.c
+@@ -3146,6 +3146,19 @@ VkResult _glfwCreateWindowSurfaceWayland(VkInstance instance,
+     return err;
+ }
+ 
++_GLFWusercontext* _glfwCreateUserContextWayland(_GLFWwindow* window)
++{
++    if (window->context.egl.handle)
++    {
++        return _glfwCreateUserContextEGL(window);
++    }
++    else if (window->context.osmesa.handle)
++    {
++        return _glfwCreateUserContextOSMesa(window);
++    }
++
++    return NULL;
++}
+ 
+ //////////////////////////////////////////////////////////////////////////
+ //////                        GLFW native API                       //////
+diff --git a/src/x11_init.c b/src/x11_init.c
+index a0100f2f..fdd4bd54 100644
+--- a/src/x11_init.c
++++ b/src/x11_init.c
+@@ -1242,6 +1242,7 @@ GLFWbool _glfwConnectX11(int platformID, _GLFWplatform* platform)
+         _glfwWaitEventsX11,
+         _glfwWaitEventsTimeoutX11,
+         _glfwPostEmptyEventX11,
++        _glfwCreateUserContextX11,
+         _glfwGetEGLPlatformX11,
+         _glfwGetEGLNativeDisplayX11,
+         _glfwGetEGLNativeWindowX11,
+diff --git a/src/x11_platform.h b/src/x11_platform.h
+index cdea3957..5ea28462 100644
+--- a/src/x11_platform.h
++++ b/src/x11_platform.h
+@@ -462,6 +462,7 @@ typedef VkBool32 (APIENTRY *PFN_vkGetPhysicalDeviceXcbPresentationSupportKHR)(Vk
+ 
+ #define GLFW_GLX_CONTEXT_STATE          _GLFWcontextGLX glx;
+ #define GLFW_GLX_LIBRARY_CONTEXT_STATE  _GLFWlibraryGLX glx;
++#define GLFW_GLX_USER_CONTEXT_STATE     _GLFWusercontextGLX glx;
+ 
+ 
+ // GLX-specific per-context data
+@@ -470,6 +471,7 @@ typedef struct _GLFWcontextGLX
+ {
+     GLXContext      handle;
+     GLXWindow       window;
++    GLXFBConfig     fbconfig;
+ } _GLFWcontextGLX;
+ 
+ // GLX-specific global data
+@@ -518,6 +520,13 @@ typedef struct _GLFWlibraryGLX
+     GLFWbool        ARB_context_flush_control;
+ } _GLFWlibraryGLX;
+ 
++// GLX-specific per usercontext data
++//
++typedef struct _GLFWusercontextGLX
++{
++    GLXContext      handle;
++} _GLFWusercontextGLX;
++
+ // X11-specific per-window data
+ //
+ typedef struct _GLFWwindowX11
+@@ -1002,3 +1011,5 @@ GLFWbool _glfwChooseVisualGLX(const _GLFWwndconfig* wndconfig,
+                               const _GLFWfbconfig* fbconfig,
+                               Visual** visual, int* depth);
+ 
++_GLFWusercontext* _glfwCreateUserContextX11(_GLFWwindow* window);
++_GLFWusercontext* _glfwCreateUserContextGLX(_GLFWwindow* window);
+diff --git a/src/x11_window.c b/src/x11_window.c
+index 7da9b965..03bd7cc8 100644
+--- a/src/x11_window.c
++++ b/src/x11_window.c
+@@ -3280,6 +3280,24 @@ VkResult _glfwCreateWindowSurfaceX11(VkInstance instance,
+     }
+ }
+ 
++_GLFWusercontext* _glfwCreateUserContextX11(_GLFWwindow* window)
++{
++    if (window->context.glx.handle)
++    {
++        return _glfwCreateUserContextGLX(window);
++    }
++    else if (window->context.egl.handle)
++    {
++        return _glfwCreateUserContextEGL(window);
++    }
++    else if (window->context.osmesa.handle)
++    {
++        return _glfwCreateUserContextOSMesa(window);
++    }
++
++    return NULL;
++}
++
+ 
+ //////////////////////////////////////////////////////////////////////////
+ //////                        GLFW native API                       //////
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index f81cfeb9..ad73a034 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -28,6 +28,7 @@ add_executable(iconify iconify.c ${GETOPT} ${GLAD_GL})
+ add_executable(monitors monitors.c ${GETOPT} ${GLAD_GL})
+ add_executable(reopen reopen.c ${GLAD_GL})
+ add_executable(cursor cursor.c ${GLAD_GL})
++add_executable(usercontext usercontext.c  ${GLAD_GL})
+ 
+ add_executable(empty WIN32 MACOSX_BUNDLE empty.c ${TINYCTHREAD} ${GLAD_GL})
+ add_executable(gamma WIN32 MACOSX_BUNDLE gamma.c ${GLAD_GL})
+@@ -51,7 +52,7 @@ endif()
+ set(GUI_ONLY_BINARIES empty gamma icon inputlag joysticks tearing threads
+     timeout title triangle-vulkan window)
+ set(CONSOLE_BINARIES allocator clipboard events msaa glfwinfo iconify monitors
+-    reopen cursor)
++    reopen cursor usercontext)
+ 
+ set_target_properties(${GUI_ONLY_BINARIES} ${CONSOLE_BINARIES} PROPERTIES
+                       C_STANDARD 99
+diff --git a/tests/usercontext.c b/tests/usercontext.c
+new file mode 100644
+index 00000000..22c39a47
+--- /dev/null
++++ b/tests/usercontext.c
+@@ -0,0 +1,96 @@
++#define GLAD_GL_IMPLEMENTATION
++#include <glad/gl.h>
++#define GLFW_INCLUDE_NONE
++#include <GLFW/glfw3.h>
++#include <stdio.h>
++
++static void error_callback(int error, const char* description)
++{
++    fprintf(stderr, "Error: %s\n", description);
++}
++
++int main(void)
++{
++    GLFWwindow* window;
++    GLFWusercontext* usercontext;
++
++    glfwSetErrorCallback(error_callback);
++
++    /* Initialize the library */
++    if (!glfwInit())
++        return -1;
++
++    /* Create a windowed mode window and its OpenGL context */
++    window = glfwCreateWindow(640, 480, "User Context", NULL, NULL);
++    if (!window)
++    {
++        glfwTerminate();
++        return -1;
++    }
++
++    /* Make the window's context current */
++    glfwMakeContextCurrent(window);
++    gladLoadGL(glfwGetProcAddress);
++
++    /* make a new context */
++    usercontext = glfwCreateUserContext(window);
++    if (!usercontext)
++    {
++        fprintf(stderr, "Failed to create user context\n");
++        glfwTerminate();
++        return -1;
++    }
++
++
++    /* set the user context current */
++    glfwMakeUserContextCurrent(usercontext);
++
++    if (glfwGetCurrentContext() != NULL)
++    {
++        fprintf(stderr, "Current glfw window context not NULL after glfwMakeUserContextCurrent\n");
++        glfwTerminate();
++        return -1;
++    }
++    if (glfwGetCurrentUserContext() != usercontext)
++    {
++        fprintf(stderr, "Current user context not correct after glfwMakeUserContextCurrent\n");
++        glfwTerminate();
++        return -1;
++    }
++
++    /* set the window context current */
++    glfwMakeContextCurrent(window);
++
++    if (glfwGetCurrentUserContext() != NULL)
++    {
++        fprintf(stderr, "Current user context not NULL after glfwMakeContextCurrent\n");
++        glfwTerminate();
++        return -1;
++    }
++    if (glfwGetCurrentContext() != window)
++    {
++        fprintf(stderr, "Current glfw window context not correct after glfwMakeContextCurrent\n");
++        glfwTerminate();
++        return -1;
++    }
++
++    glClearColor( 0.4f, 0.3f, 0.4f, 1.0f );
++
++
++    /* Loop until the user closes the window */
++    while (!glfwWindowShouldClose(window))
++    {
++        /* Render here */
++        glClear(GL_COLOR_BUFFER_BIT);
++
++        /* Swap front and back buffers */
++        glfwSwapBuffers(window);
++
++        /* Poll for and process events */
++        glfwPollEvents();
++    }
++
++    glfwDestroyUserContext(usercontext);
++    glfwTerminate();
++    return 0;
++}
+\ No newline at end of file
+-- 
+2.39.3
+

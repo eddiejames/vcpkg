@@ -1,0 +1,79 @@
+From 41bd8759f50a3a85439e8f24c821b0c432712a8e Mon Sep 17 00:00:00 2001
+From: Eddie James <eajames@linux.ibm.com>
+Date: Wed, 24 May 2023 15:30:25 -0500
+Subject: [PATCH] remove DESTINATION lib from library install commands
+
+Signed-off-by: Eddie James <eajames@linux.ibm.com>
+---
+ src/animation/offline/CMakeLists.txt | 2 +-
+ src/animation/runtime/CMakeLists.txt | 2 +-
+ src/base/CMakeLists.txt              | 2 +-
+ src/geometry/runtime/CMakeLists.txt  | 2 +-
+ src/options/CMakeLists.txt           | 2 +-
+ 5 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/src/animation/offline/CMakeLists.txt b/src/animation/offline/CMakeLists.txt
+index 7dc853f6..e7779ae4 100644
+--- a/src/animation/offline/CMakeLists.txt
++++ b/src/animation/offline/CMakeLists.txt
+@@ -31,7 +31,7 @@ target_link_libraries(ozz_animation_offline ozz_animation)
+ 
+ set_target_properties(ozz_animation_offline PROPERTIES FOLDER "ozz")
+ 
+-install(TARGETS ozz_animation_offline DESTINATION lib)
++install(TARGETS ozz_animation_offline)
+ 
+ fuse_target("ozz_animation_offline")
+ 
+diff --git a/src/animation/runtime/CMakeLists.txt b/src/animation/runtime/CMakeLists.txt
+index 06b129ec..d5c5ced9 100644
+--- a/src/animation/runtime/CMakeLists.txt
++++ b/src/animation/runtime/CMakeLists.txt
+@@ -37,6 +37,6 @@ target_link_libraries(ozz_animation
+ set_target_properties(ozz_animation
+   PROPERTIES FOLDER "ozz")
+ 
+-install(TARGETS ozz_animation DESTINATION lib)
++install(TARGETS ozz_animation)
+ 
+ fuse_target("ozz_animation")
+diff --git a/src/base/CMakeLists.txt b/src/base/CMakeLists.txt
+index 97b069e2..a0c69de9 100644
+--- a/src/base/CMakeLists.txt
++++ b/src/base/CMakeLists.txt
+@@ -68,7 +68,7 @@ target_include_directories(ozz_base PUBLIC
+ 
+ set_target_properties(ozz_base PROPERTIES FOLDER "ozz")
+ 
+-install(TARGETS ozz_base DESTINATION lib)
++install(TARGETS ozz_base)
+ 
+ fuse_target("ozz_base")
+ 
+diff --git a/src/geometry/runtime/CMakeLists.txt b/src/geometry/runtime/CMakeLists.txt
+index 92376d06..07f74cfd 100644
+--- a/src/geometry/runtime/CMakeLists.txt
++++ b/src/geometry/runtime/CMakeLists.txt
+@@ -7,6 +7,6 @@ target_compile_definitions(ozz_geometry PRIVATE $<$<BOOL:${BUILD_SHARED_LIBS}>:O
+ target_link_libraries(ozz_geometry ozz_base)
+ set_target_properties(ozz_geometry PROPERTIES FOLDER "ozz")
+ 
+-install(TARGETS ozz_geometry DESTINATION lib)
++install(TARGETS ozz_geometry)
+ 
+ fuse_target("ozz_geometry")
+diff --git a/src/options/CMakeLists.txt b/src/options/CMakeLists.txt
+index a477b19c..25af6c82 100644
+--- a/src/options/CMakeLists.txt
++++ b/src/options/CMakeLists.txt
+@@ -8,6 +8,6 @@ target_compile_definitions(ozz_options PRIVATE $<$<BOOL:${BUILD_SHARED_LIBS}>:OZ
+   
+ set_target_properties(ozz_options PROPERTIES FOLDER "ozz")
+ 
+-install(TARGETS ozz_options DESTINATION lib)
++install(TARGETS ozz_options)
+ 
+ fuse_target("ozz_options")
+-- 
+2.31.1
+
